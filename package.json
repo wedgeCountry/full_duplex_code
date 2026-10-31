@@ -30,7 +30,8 @@
     "test:fdc": "node scripts/test-fdc.ts",
     "test:pages": "node scripts/test-pages.ts",
     "test:standby": "node scripts/test-standby.ts",
-    "test:standby-voice": "node scripts/test-standby-voice.ts"
+    "test:standby-voice": "node scripts/test-standby-voice.ts",
+    "test:voice-providers": "node scripts/test-voice-providers.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
