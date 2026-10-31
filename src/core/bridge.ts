@@ -21,6 +21,7 @@ import { Timeline } from './timeline.ts';
 import { StatusLog, statusSnapshot, type BridgeEvent } from './status.ts';
 import { Outbox } from './outbox.ts';
 import { VoiceSessions } from './voice-sessions.ts';
+import { createProvider, type VoiceProvider } from '../voice/index.ts';
 import { Endpoints } from './endpoints.ts';
 import { Pages, type Page } from './pages.ts';
 import { DEFAULT_TUNING, tuning, type Tuning } from './tuning.ts';
@@ -44,6 +45,8 @@ export interface HarnessOptions {
   agentArgs?: string[];
   /** Ask OpenAI to store voice sessions so that Resume voice can fork them (default true; --no-store turns it off). */
   store?: boolean;
+  /** The voice backend, from src/voice (one entry point for every provider); default: the openai-live provider. */
+  voiceProvider?: VoiceProvider;
   /** Where the page being presented is remembered, so a restart of fdc picks it up again (stage.ts). */
   stageFile?: string;
 }
@@ -83,12 +86,14 @@ export class Harness {
   clean: (text: unknown) => string;
   statusLog: StatusLog; log: (event: BridgeEvent) => void; publish: (event: BridgeEvent, page?: Page) => void; fault: (error: Error, page?: Page) => void;
   ledger: UsageLedger; timeline: Timeline; outbox: Outbox; voiceSessions: VoiceSessions; endpoints: Endpoints;
+  /** The voice backend behind every voice session (src/voice/provider.ts). */
+  voiceProvider: VoiceProvider;
   /** The page the agent last showed the operator, which the gate can move (stage.ts). */
   stage: Stage;
   /** Moves the stage by what GPT Live says: speech cues, the words Jev matches to a command, the following ring. */
   presenter: Presenter;
   statusTimer?: NodeJS.Timeout; agentLostTimer?: NodeJS.Timeout;
-  constructor({ agent, root, runDir, cwd, sessionId, apiKey, voice = 'marin', observation = agent.observationModes[0] ?? '', port = 0, portFallback = false, publicUrl, agentArgs = [], jevKey, tuning: overrides, features = DEFAULT_FEATURES, store = true, stageFile }: HarnessOptions) {
+  constructor({ agent, root, runDir, cwd, sessionId, apiKey, voice = 'marin', observation = agent.observationModes[0] ?? '', port = 0, portFallback = false, publicUrl, agentArgs = [], jevKey, tuning: overrides, features = DEFAULT_FEATURES, store = true, voiceProvider, stageFile }: HarnessOptions) {
     this.agent = agent; this.root = root; this.runDir = runDir; this.cwd = cwd; this.sessionId = sessionId; this.apiKey = apiKey;
     this.voice = voice; this.observation = observation; this.port = port; this.portFallback = portFallback;
     fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
@@ -99,6 +104,7 @@ export class Harness {
     this.statusLog = new StatusLog({ runDir, clean: this.clean, timeline: this.timeline, pages: this.pages });
     this.log = this.statusLog.log; this.publish = this.statusLog.publish; this.fault = this.statusLog.fault;
     this.ledger = new UsageLedger(path.join(root, '.runs', 'budget.json'));
+    this.voiceProvider = voiceProvider ?? createProvider('openai-live', { apiKey });
     this.tuning = tuning(overrides); this.pinned = Object.keys(overrides ?? {}) as (keyof Tuning)[];
     if (this.pinned.length) this.tuningHistory.push({ at: Date.now(), by: 'FDC_TUNING', changes: this.pinned.map(name => ({ name, from: DEFAULT_TUNING[name], to: this.tuning[name] })) });
     this.learned = new LearnedLog(path.join(root, '.runs', 'learned-instructions.jsonl'));
