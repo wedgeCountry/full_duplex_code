@@ -4,7 +4,7 @@ import { WebSocket } from 'ws';
 import type { Harness } from './bridge.ts';
 import type { OutboxEntry } from './outbox.ts';
 import type { Page } from './pages.ts';
-import { LiveSession, type CloseResult } from './live-session.ts';
+import type { CloseResult, VoiceProvider, VoiceSession } from '../voice/provider.ts';
 import { Mediator } from './mediator.ts';
 import { jobTurn, routeActions } from './turn.ts';
 import { AudioAudit } from './audio-audit.ts';
@@ -59,7 +59,7 @@ const saved = ({ id, text, learned, learnedIn }: Instruction | SavedInstruction)
 
 /** One voice session from its start: how it began, and the record of the agent session it belongs to. */
 interface Run {
-  live: LiveSession; plan: ResumePlan; page?: Page; automatic: boolean; mediator: Mediator;
+  live: VoiceSession; plan: ResumePlan; page?: Page; automatic: boolean; mediator: Mediator;
   record: ResumeRecord; recordId?: string;
   /** The page state GPT Live was last told (pageFor's signature). */
   briefed?: string;
@@ -86,15 +86,15 @@ interface Standby { since: number; page: Page; waking?: Wake & { at: number; ask
 // delivered requests, and resuming the conversation, by choice or after a drop.
 export class VoiceSessions {
   bridge: Harness;
-  live?: LiveSession;
+  live?: VoiceSession;
   mediator?: Mediator;
   /** The current voice session, from its start. */
   run?: Run;
   audit: AudioAudit | null = null;
   additionalInstructions: Instruction[] = [];
   /** Every instruction appended to each session, in order, countermands included: nothing appended can be taken out. */
-  appendedTo = new WeakMap<LiveSession, string[]>();
-  appended(live: LiveSession, text: string) { this.appendedTo.set(live, [...this.appendedTo.get(live) ?? [], text]); }
+  appendedTo = new WeakMap<VoiceSession, string[]>();
+  appended(live: VoiceSession, text: string) { this.appendedTo.set(live, [...this.appendedTo.get(live) ?? [], text]); }
   usage?: LiveUsage;
   /** When GPT Live last echoed microphone audio (or the page sent it, over WebSocket), and when the page last reported microphone levels. */
   lastAudioAt = 0; pageAudioAt = 0;
@@ -102,11 +102,11 @@ export class VoiceSessions {
   /** The page the current voice session belongs to: its events go there, and its microphone is the one heard. */
   page?: Page;
   /** Sessions that ended because another page started voice, and one being ended now. */
-  moved = new WeakSet<LiveSession>(); moving = false;
+  moved = new WeakSet<VoiceSession>(); moving = false;
   /** Sessions GPT Live started; one that never did is retried or reported by start(), with how it ended. */
-  started = new WeakSet<LiveSession>(); failed?: CloseResult;
-  /** Opens each voice connection; tests replace it. */
-  createLive = (options: ConstructorParameters<typeof LiveSession>[0]) => new LiveSession(options);
+  started = new WeakSet<VoiceSession>(); failed?: CloseResult;
+  /** Opens each voice connection through the voice provider (src/voice); tests replace it. */
+  createLive = (options: Parameters<VoiceProvider['createSession']>[0]) => this.bridge.voiceProvider.createSession(options);
   /** How many instructions Jev has learned for this agent session, for their IDs. */
   learnedCount = 0;
   /** Whether voice sessions ask OpenAI to store them for forking: off with --no-store, or once OpenAI refuses. */
@@ -308,7 +308,7 @@ export class VoiceSessions {
     await this.applyInstruction(live!, item);
     return item;
   }
-  async applyInstruction(live: LiveSession, item: Instruction) {
+  async applyInstruction(live: VoiceSession, item: Instruction) {
     const { log, publish, fault, clean } = this.bridge;
     Object.assign(item, { state: 'pending', sessionId: live.id });
     try {
@@ -366,7 +366,7 @@ export class VoiceSessions {
     if (plan === 'fresh' && !wake) this.handOffCarried();
     const requested = { at: Date.now(), plan, seeded };
     for (;;) {
-      const attempt: { live?: LiveSession; requested: Run['requested']; wake?: Wake } = { requested, wake };
+      const attempt: { live?: VoiceSession; requested: Run['requested']; wake?: Wake } = { requested, wake };
       try { return await this.connect(sdp as string | undefined, page, plan, automatic, attempt); }
       catch (error) {
         const live = attempt.live, message = (error as Error).message;
@@ -404,7 +404,7 @@ export class VoiceSessions {
       }
     }
   }
-  async connect(sdp: string | undefined, page: Page | undefined, plan: ResumePlan, automatic: boolean, attempt: { live?: LiveSession; requested?: Run['requested']; wake?: Wake } = {}) {
+  async connect(sdp: string | undefined, page: Page | undefined, plan: ResumePlan, automatic: boolean, attempt: { live?: VoiceSession; requested?: Run['requested']; wake?: Wake } = {}) {
     const bridge = this.bridge, { agent, observer, log, publish, fault, clean } = bridge, { name } = agent.profile;
     const record = this.current(), recordId = this.recordFor, sourceId = plan === 'fork' ? record.liveSessionId : undefined;
     // Waking, GPT Live is told at the start that the conversation continues, rather than by an append after it starts.
@@ -426,7 +426,7 @@ export class VoiceSessions {
     // What GPT Live perceives at its start, for Jev: fdc's messages, and the earlier turns a seed puts between them.
     const perceivedInput: PerceivedEntry[] = plan === 'fork' ? [] : input.map((item, i) => i < opening || i >= input.length - now.length
       ? { at: 0, kind: 'start', text: item.content[0].text } : { at: 0, role: item.role === 'user' ? 'operator' : 'intermediary', text: item.content[0].text });
-    const live: LiveSession = this.createLive({ apiKey: bridge.apiKey, budget: bridge.ledger, voice: bridge.voice, instructions: this.instructions(), label: `${name} ${bridge.sessionId ?? 'session'}`,
+    const live: VoiceSession = this.createLive({ budget: bridge.ledger, voice: bridge.voice, instructions: this.instructions(), label: `${name} ${bridge.sessionId ?? 'session'}`,
       input: plan === 'fork' ? [] : input, store: this.store, fork: sourceId, log: event => log({ liveRun: live.reservation, ...event }) });
     attempt.live = live;
     this.audit?.close(); this.audit = null; this.failed = undefined;
@@ -625,7 +625,7 @@ export class VoiceSessions {
   }
   // Startup (session creation and WebRTC setup) is not counted; the first audio
   // gets its own allowance. The reason names what stopped.
-  watch(live: LiveSession) {
+  watch(live: VoiceSession) {
     const startedAt = Date.now();
     clearInterval(this.audioWatchdog);
     this.audioWatchdog = setInterval(() => {

@@ -1,0 +1,6 @@
+{
+  "keyEnv": "OPENAI_API_KEY",
+  "url": "wss://api.openai.com/v1/live/sessions",
+  "model": "gpt-live-1",
+  "defaultVoice": "marin"
+}

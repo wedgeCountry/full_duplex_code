@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import type { UsageLedger } from './usage-ledger.ts';
 import type { AppendKind } from './context-queue.ts';
+import type { CloseResult, LiveState } from '../voice/provider.ts';
 
 export const SAMPLE_RATE = 24000;
-export type LiveState = 'new' | 'connecting' | 'active' | 'closing' | 'closed';
-export interface CloseResult { finalized: boolean; reserved: boolean; usageSeconds: number; sessionId?: string; reason: string; closeCode?: number }
+export type { CloseResult, LiveState };
 interface Pending { resolve: (event: any) => void; reject: (error: Error) => void }
 
 // One GPT Live session: created over HTTPS (WebRTC) or a WebSocket, or forked

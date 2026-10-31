@@ -16,6 +16,7 @@ import { DEFAULT_FEATURES, FEATURES, featuresFrom, type Feature } from './core/f
 import type { AgentArguments, AgentDefinition } from './core/adapter.ts';
 import { agents } from './adapters/index.ts';
 import { parseLaunchArgs, UsageError, type LaunchCommand } from './launcher/options.ts';
+import { activeProviderConfig, availableProviders, createProvider } from './voice/index.ts';
 import { startTunnel, type Tunnel } from './launcher/tunnel.ts';
 import { confirmStart } from './launcher/launch-prompt.ts';
 import { ErrorTail, failureNotice, loud } from './launcher/agent-errors.ts';
@@ -45,6 +46,8 @@ Agents:
 ${list.map(agent => `  ${agent.profile.id.padEnd(22)}${agent.profile.product}`).join('\n')}
 Options, before the agent's name:
   --voice marin         GPT Live voice
+  --voice-provider ID   Voice backend from its own config/voice/ID.json
+                        (${availableProviders().join(', ')}; else FDC_VOICE_PROVIDER)
   --observe MODE        How to observe the agent's text (${list.filter(agent => agent.observationModes.length).map(agent => `${agent.profile.id}: ${agent.observationModes.join(' (default) or ')}`).join('; ')})
   --port 8123           Local port (default 8123; 0 chooses a free port)
   --public              Also reach the companion from a phone, through a temporary
@@ -84,8 +87,9 @@ if (command === 'usage') { console.log(JSON.stringify(new UsageLedger(path.join(
 if (command === 'doctor') {
   // One agent when named; otherwise every agent, and any one of them ready is enough.
   const checked = (launch.agent ? [agentNamed(launch.agent)] : Object.values(agents)).map(agent => agent.doctor());
-  const report = { node: process.version, ...Object.assign({}, ...checked.map(result => result.report)), openAIKeyPresent: Boolean(process.env.OPENAI_API_KEY), microphone: 'Browser grants access when you click Start voice', budget: new UsageLedger(path.join(root, '.runs/budget.json')).summary() };
-  console.log(JSON.stringify(report, null, 2)); process.exit(checked.some(result => result.ok) && process.env.OPENAI_API_KEY ? 0 : 1);
+  const { config: voiceConfig, apiKey: voiceKey } = activeProviderConfig(values['voice-provider']);
+  const report = { node: process.version, ...Object.assign({}, ...checked.map(result => result.report)), voiceProvider: voiceConfig.id, voiceKeyPresent: voiceConfig.keyEnv ? Boolean(voiceKey) : true, openAIKeyPresent: Boolean(process.env.OPENAI_API_KEY), microphone: 'Browser grants access when you click Start voice', budget: new UsageLedger(path.join(root, '.runs/budget.json')).summary() };
+  console.log(JSON.stringify(report, null, 2)); process.exit(checked.some(result => result.ok) && (voiceConfig.keyEnv ? Boolean(voiceKey) : true) ? 0 : 1);
 }
 const agent = agentNamed(launch.agent);
 const { name, product, transport } = agent.profile;
@@ -114,7 +118,10 @@ function agentCommand(name: string): Command {
 async function run(agent: AgentDefinition, session: AgentArguments) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) refuse(`Run fdc in a terminal. The final interface is the normal interactive ${product} chat.`);
   agentCommand(agent.profile.id);
-  if (!process.env.OPENAI_API_KEY) refuse('Add OPENAI_API_KEY to .env or your environment.');
+  // The voice backend: --voice-provider, else FDC_VOICE_PROVIDER, else openai-live, each from its own config file.
+  const { config: voiceConfig, apiKey: voiceKey } = activeProviderConfig(values['voice-provider']);
+  if (voiceConfig.keyEnv && !voiceKey) refuse(`Add ${voiceConfig.keyEnv} to .env or your environment (voice provider "${voiceConfig.id}").`);
+  const voiceProvider = createProvider(voiceConfig.id, { ...voiceConfig, apiKey: voiceKey });
   const modes = agent.observationModes;
   if (values.observe !== undefined && !modes.includes(values.observe)) refuse(modes.length ? `--observe must be ${modes.join(' or ')} for ${agent.profile.id}.` : `--observe does not apply to ${agent.profile.id}.`);
   // A stable address lets Chrome remember microphone access between launches.
@@ -126,7 +133,7 @@ async function run(agent: AgentDefinition, session: AgentArguments) {
   const sessionId = session.sessionId ?? (session.assignSession ? randomUUID() : undefined);
   const runDir = path.join(root, '.runs', `${new Date().toISOString().replaceAll(':', '-')}-${sessionId?.slice(0, 8) ?? (session.resume ? 'resumed' : agent.profile.id)}`);
   let harness: Harness;
-  try { harness = await new Harness({ agent, root, runDir, cwd, sessionId, apiKey: process.env.OPENAI_API_KEY!, port, portFallback: values.port === undefined, voice: values.voice, observation: values.observe, agentArgs, jevKey: process.env.TYPESAFE_API_KEY, tuning: tuningOverrides(), features: features(), store: !values['no-store'],
+  try { harness = await new Harness({ agent, root, runDir, cwd, sessionId, apiKey: process.env.OPENAI_API_KEY ?? voiceKey ?? '', port, portFallback: values.port === undefined, voice: values.voice, observation: values.observe, agentArgs, jevKey: process.env.TYPESAFE_API_KEY, tuning: tuningOverrides(), features: features(), store: !values['no-store'], voiceProvider,
     // The page being presented, per folder: a restart picks it up again, however the agent session is resumed (keyed by
     // session too, "--resume" with the session picked in Claude's list lost it on Oct 21, and every page move went to
     // the agent until it showed the page again).
