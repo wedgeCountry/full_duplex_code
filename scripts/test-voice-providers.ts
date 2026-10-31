@@ -5,6 +5,7 @@
 //   FDC_TEST_REALTIME_URL   ws://…/v1/realtime   a live OpenAI-Realtime-compatible server
 //                           (FDC_TEST_REALTIME_KEY  its bearer key, when it requires one)
 //   FDC_TEST_CASCADE_URL    ws://…/voice          a live cascaded local pipeline
+//   FDC_TEST_MOSHI_URL      ws://…/api/chat       a live moshi-server LM endpoint
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -59,7 +60,24 @@ async function cascade() {
   console.log(`local-cascade OK (${url})`);
 }
 
+async function moshi() {
+  const url = endpoint('FDC_TEST_MOSHI_URL');
+  const provider = createProvider('moshi', { url, apiKey: process.env.FDC_TEST_MOSHI_KEY ?? 'public_token' });
+  const live: VoiceSession = provider.createSession({ budget: ledger(), instructions: 'Answer in one short sentence.', label: 'integration' });
+  const transcripts: string[] = [];
+  live.on('event', e => { if (e.type === 'session.output_transcript.delta') transcripts.push(e.delta); });
+  await live.start();
+  assert.equal(live.state, 'active', 'session activates against the real moshi-server');
+  await live.append('commentary', 'Say exactly: integration ok.');
+  for (let i = 0; i < 100 && !transcripts.join('').toLowerCase().includes('integration'); i++) await settle(200);
+  assert.ok(transcripts.length > 0, 'the real Moshi spoke a transcript back');
+  const result = await live.close('integration done');
+  assert.equal(result.usageSeconds, 0, 'a local model bills nothing');
+  console.log(`moshi OK (${url}): transcript "${transcripts.join('').slice(0, 80)}"`);
+}
+
 const which = process.argv[2];
 if (which === 'realtime') await realtime();
 else if (which === 'cascade') await cascade();
-else { await realtime(); await cascade(); }
+else if (which === 'moshi') await moshi();
+else { await realtime(); await cascade(); await moshi(); }
