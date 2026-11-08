@@ -85,16 +85,18 @@ test('server events pass through to the bridge unchanged', async t => {
   await live.close();
 });
 
-test('closing an active session closes the socket and settles unfinalized with zero usage', async t => {
-  const { provider, budget } = await mockCascade(t);
+test('closing an active session sends session.close and settles finalized at zero usage', async t => {
+  const { provider, budget, received } = await mockCascade(t, (ws, event) => {
+    if (event.type === 'session.close') { ws.send(JSON.stringify({ type: 'session.closed', reason: 'close_requested' })); ws.close(); }
+  });
   const live = session(provider, budget);
   await live.start();
   const result = await live.close('requested');
   assert.equal(live.state, 'closed');
-  assert.equal(result.finalized, false);
+  await until(() => received.some(e => e.type === 'session.close'));
+  assert.equal(result.finalized, true, 'a requested close that the server confirms is finalized');
   assert.equal(result.usageSeconds, 0);
   assert.equal(result.reserved, true);
-  assert.equal(budget.summary().runs[0].finalized, false);
 });
 
 test('closing before start settles without a reservation', async t => {

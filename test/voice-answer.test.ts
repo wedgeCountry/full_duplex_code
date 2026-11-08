@@ -67,7 +67,8 @@ test('appends are acked by echoing client_event_id, audio streams as base64 PCM,
     ['session.input_audio.append', Buffer.from([5, 0, 6, 0]).toString('base64')],
   ]);
   const result = await live.close('operator ended voice');
-  assert.equal(result.finalized, false);
+  await until(() => received.some(e => e.type === 'session.close'));
+  assert.equal(result.finalized, true);
   assert.equal(result.reserved, true);
   assert.equal(result.reason, 'operator ended voice');
 });

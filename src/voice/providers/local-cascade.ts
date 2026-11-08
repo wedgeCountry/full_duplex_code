@@ -58,7 +58,7 @@ export class CascadeSession extends EventEmitter implements VoiceSession {
         } else this.emit('event', event);
       });
       socket.on('error', error => { this.emit('fault', error); this.abort(error.message); reject(error); });
-      socket.on('close', (code, reason) => { this.log({ type: 'bridge.live_socket_closed', code, reason: reason.toString() || undefined }); this.finish(false); });
+      socket.on('close', (code, reason) => { this.log({ type: 'bridge.live_socket_closed', code, reason: reason.toString() || undefined }); this.finish(this.requested); });
     });
   }
   audio(pcm: Buffer) {
@@ -76,8 +76,12 @@ export class CascadeSession extends EventEmitter implements VoiceSession {
   async greet(text: string) { await this.append('commentary', text); }
   close(reason = 'requested'): Promise<CloseResult> {
     this.closeReason ??= reason; this.requested = true;
-    if (this.state === 'active') { this.state = 'closing'; this.socket!.close(); }
-    else if (this.state === 'new' || this.state === 'connecting') this.abort(reason);
+    if (this.state === 'active') {
+      this.state = 'closing';
+      // Ask first, then close: the server answers session.closed to session.close (R4).
+      this.socket!.send(JSON.stringify({ type: 'session.close' }));
+      setTimeout(() => this.socket?.terminate(), 5000).unref();
+    } else if (this.state === 'new' || this.state === 'connecting') this.abort(reason);
     return this.closed;
   }
   private abort(reason: string) {
