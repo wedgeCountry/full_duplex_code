@@ -13,6 +13,7 @@ Everything the bridge knows about a voice backend sits behind one contract, [`pr
 | `openai-realtime` | [providers/openai-realtime.ts](providers/openai-realtime.ts) | self-hosted Realtime-compatible server (e.g. Hugging Face speech-to-speech) | WebSocket | no |
 | `local-cascade` | [providers/local-cascade.ts](providers/local-cascade.ts) | local STT+LLM+TTS pipeline (Pipecat/LiveKit style) | WebSocket | no |
 | `moshi` | [providers/moshi.ts](providers/moshi.ts) | Kyutai Moshi via `moshi-server` (`/api/chat`) — genuinely full-duplex, ~200 ms, real barge-in | WebSocket (binary, Ogg/Opus) | no |
+| `answer` | [providers/answer.ts](providers/answer.ts) | the `answer` package's `WS /v1/chat` (VAD→STT→local LM→TTS; shares the cascade wire protocol, see [providers/local-cascade.ts](providers/local-cascade.ts)) | WebSocket | no |
 
 ### Moshi
 
@@ -28,5 +29,5 @@ Capabilities the bridge degrades on: without `nativeProtocol` the mediator falls
 
 ## Tests
 
-- **Unit, offline:** `test/voice-realtime.test.ts`, `test/voice-cascade.test.ts` and `test/voice-moshi.test.ts` run each provider against a mock WebSocket server on 127.0.0.1 that speaks its protocol (Moshi's mock speaks the binary frame kinds); they are part of `npm test`.
-- **Integration, against real servers:** `npm run test:voice-providers` (`scripts/test-voice-providers.ts`) needs `FDC_TEST_REALTIME_URL` (plus `FDC_TEST_REALTIME_KEY` when the server requires a key), `FDC_TEST_CASCADE_URL` and/or `FDC_TEST_MOSHI_URL`; it exits with an error naming the missing variable when one is not set, so an unconfigured run can never look like a pass.
+- **Unit, offline:** `test/voice-realtime.test.ts`, `test/voice-cascade.test.ts`, `test/voice-moshi.test.ts` and `test/voice-answer.test.ts` run each provider against a mock WebSocket server on 127.0.0.1 that speaks its protocol (Moshi's mock speaks the binary frame kinds); they are part of `npm test`.
+- **Integration, against real servers:** `npm run test:voice-providers` (`scripts/test-voice-providers.ts`) needs `FDC_TEST_REALTIME_URL` (plus `FDC_TEST_REALTIME_KEY` when the server requires a key), `FDC_TEST_CASCADE_URL`, `FDC_TEST_MOSHI_URL` and/or `FDC_TEST_ANSWER_URL`; it exits with an error naming the missing variable when one is not set, so an unconfigured run can never look like a pass.

@@ -20,8 +20,11 @@ import { registerProvider, type AppendKind, type CloseResult, type LiveState, ty
  *                    session.output_audio.delta { delta }
  *                    session.input_transcript.delta { delta } / session.output_transcript.delta { delta }
  *                    error { error: { message } }
+ *
+ * Also spoken by the `answer` package's WS /v1/chat endpoint (REQUIREMENTS-fdc.md
+ * in wedgeCountry/answer), which is why it is exported and reused there.
  */
-class CascadeSession extends EventEmitter implements VoiceSession {
+export class CascadeSession extends EventEmitter implements VoiceSession {
   id?: string; state: LiveState = 'new'; transport: 'webrtc' | 'websocket' = 'websocket';
   startedAt?: number; reservation?: string; instructions: string; store = false; stored = false;
   requested = false; answered = false; closeReason?: string; usageSeconds = 0;
