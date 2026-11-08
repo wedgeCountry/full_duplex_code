@@ -6,6 +6,7 @@
 //                           (FDC_TEST_REALTIME_KEY  its bearer key, when it requires one)
 //   FDC_TEST_CASCADE_URL    ws://…/voice          a live cascaded local pipeline
 //   FDC_TEST_MOSHI_URL      ws://…/api/chat       a live moshi-server LM endpoint
+//   FDC_TEST_ANSWER_URL     ws://…/v1/chat        a live answer-package server
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -76,8 +77,26 @@ async function moshi() {
   console.log(`moshi OK (${url}): transcript "${transcripts.join('').slice(0, 80)}"`);
 }
 
+async function answer() {
+  const url = endpoint('FDC_TEST_ANSWER_URL');
+  const provider = createProvider('answer', { url });
+  const live: VoiceSession = provider.createSession({ budget: ledger(), instructions: 'Answer in one short sentence.', label: 'integration' });
+  const events: string[] = [];
+  live.on('event', e => events.push(e.type));
+  await live.start();
+  assert.equal(live.state, 'active', 'session activates against the real answer server');
+  await live.append('commentary', 'Say exactly: integration ok.');
+  live.audio(Buffer.alloc(24000 * 2, 0));
+  for (let i = 0; i < 100 && !events.includes('session.output_audio.delta'); i++) await settle(200);
+  assert.ok(events.includes('session.output_audio.delta'), 'the real answer server returned audio');
+  const result = await live.close('integration done');
+  assert.equal(result.usageSeconds, 0, 'a local server bills nothing');
+  console.log(`answer OK (${url})`);
+}
+
 const which = process.argv[2];
 if (which === 'realtime') await realtime();
 else if (which === 'cascade') await cascade();
 else if (which === 'moshi') await moshi();
-else { await realtime(); await cascade(); await moshi(); }
+else if (which === 'answer') await answer();
+else { await realtime(); await cascade(); await moshi(); await answer(); }

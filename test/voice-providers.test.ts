@@ -40,7 +40,7 @@ test('the openai-live provider creates sessions that speak the Live protocol', (
 });
 
 test('local providers report no fork, webrtc or context-ratio support', () => {
-  for (const id of ['openai-realtime', 'local-cascade']) {
+  for (const id of ['openai-realtime', 'local-cascade', 'moshi', 'answer']) {
     const provider = createProvider(id, {});
     assert.equal(provider.capabilities.webrtc, false, id);
     assert.equal(provider.capabilities.fork, false, id);
